@@ -1521,7 +1521,7 @@ const CURRICULUM = [
 ═══════════════════════════════════════════════════════ */
 const SUPABASE_URL  = 'https://ajovtrbjwgwclcvpdlfm.supabase.co';   // e.g. https://xxxx.supabase.co
 const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqb3Z0cmJqd2d3Y2xjdnBkbGZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5Nzc1MDUsImV4cCI6MjA5NjU1MzUwNX0.29HWZHsl-9skhT8yDiWnup3lEOMHaPWz108cI33EwH0';
-const USE_CLOUD     = SUPABASE_URL !== 'https://ajovtrbjwgwclcvpdlfm.supabase.co'; // auto-detects config
+function USE_CLOUD(){ return SUPABASE_URL !== 'https://ajovtrbjwgwclcvpdlfm.supabase.co' && SUPABASE_URL.length > 10; }
 
 /* ══════════════════════════════════════════════════════
    USER IDENTITY — persistent ID stored in localStorage
@@ -1576,13 +1576,13 @@ function saveLocal(){
 /* ── CLOUD SAVE (debounced — writes 2s after last change) ── */
 function saveST(){
   saveLocal();
-  if(!USE_CLOUD) return;
+  if(!USE_CLOUD()) return;
   clearTimeout(_cloudSaveTimer);
   _cloudSaveTimer = setTimeout(saveCloud, 2000);
 }
 
 async function saveCloud(){
-  if(!USE_CLOUD) return;
+  if(!USE_CLOUD()) return;
   try{
     const uid = getUID();
     await fetch(`${SUPABASE_URL}/rest/v1/farsi_progress`, {
@@ -1610,7 +1610,7 @@ async function saveCloud(){
 
 /* ── CLOUD LOAD (runs after local, merges if cloud is newer) ── */
 async function loadCloud(){
-  if(!USE_CLOUD) return;
+  if(!USE_CLOUD()) return;
   try{
     const uid = getUID();
     const res = await fetch(
@@ -1665,7 +1665,7 @@ function showSyncPanel(){
       <div style="font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.6">
         <strong style="color:var(--paper)">On your other device:</strong> open the app → tap ⚙️ Settings → paste your ID under "Restore progress from another device."
       </div>
-      ${USE_CLOUD
+      ${USE_CLOUD()
         ? `<div style="font-size:12px;color:#6de8a0;margin-bottom:16px">✓ Cloud sync is active — progress saves automatically.</div>`
         : `<div style="font-size:12px;color:rgba(245,200,66,0.7);margin-bottom:16px">⚠️ Cloud sync not configured yet. See setup instructions below.</div>`
       }
@@ -1693,7 +1693,7 @@ async function restoreFromUID(){
   const input = document.getElementById('restore-uid-input');
   const newUID = input ? input.value.trim() : '';
   if(!newUID){ alert('Please paste your User ID first.'); return; }
-  if(!USE_CLOUD){ alert('Cloud sync is not configured yet. Complete the Supabase setup first.'); return; }
+  if(!USE_CLOUD()){ alert('Cloud sync is not configured yet. Complete the Supabase setup first.'); return; }
   try{
     const res = await fetch(
       `${SUPABASE_URL}/rest/v1/farsi_progress?user_id=eq.${newUID}&select=*`,
