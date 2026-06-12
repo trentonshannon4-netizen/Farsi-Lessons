@@ -364,6 +364,7 @@ table.ref-conj tr:hover td { background:rgba(201,168,76,0.06); }
     <span>⚡ <span class="stat-val" id="hdr-xp">0</span> XP</span>
     <span>❤️ <span class="stat-val" id="hdr-h">5</span></span>
     <button class="btn btn-outline" onclick="openRef()" style="padding:5px 12px;font-size:12px;letter-spacing:1px">📚 Reference</button>
+    <button class="btn btn-outline" onclick="launchReview()" style="padding:5px 12px;font-size:12px;letter-spacing:1px">🎯 Review</button>
     <button class="btn btn-outline" onclick="showSyncPanel()" style="padding:5px 10px;font-size:12px" title="Cross-device sync">⚙️</button>
   </div>
 </div>
@@ -1521,7 +1522,7 @@ const CURRICULUM = [
 ═══════════════════════════════════════════════════════ */
 const SUPABASE_URL  = 'https://ajovtrbjwgwclcvpdlfm.supabase.co';   // e.g. https://xxxx.supabase.co
 const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqb3Z0cmJqd2d3Y2xjdnBkbGZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5Nzc1MDUsImV4cCI6MjA5NjU1MzUwNX0.29HWZHsl-9skhT8yDiWnup3lEOMHaPWz108cI33EwH0';
-function USE_CLOUD(){ return SUPABASE_URL !== 'YOUR_SUPABASE_URL' && SUPABASE_URL.length > 10; }
+function USE_CLOUD(){ return SUPABASE_URL.indexOf('https://ajovtrbjwgwclcvpdlfm.supabase.co') > 0; } // true once a real Supabase URL is pasted in
 
 /* ══════════════════════════════════════════════════════
    USER IDENTITY — persistent ID stored in localStorage
@@ -1890,13 +1891,138 @@ function buildRecap(day){
   </div>`;
 }
 
+
+/* ══════════════════════════════════════════════════════
+   CUMULATIVE REVIEW MODE — practice only, no XP
+   25 random questions across all unlocked days.
+   Weak words (missed before) and older days appear more.
+═══════════════════════════════════════════════════════ */
+const WEAK_KEY = 'farsi30_weak';
+
+function getWeak(){
+  try{ return JSON.parse(localStorage.getItem(WEAK_KEY)||'{}'); }catch(e){ return {}; }
+}
+function recordMiss(f){
+  if(!f) return;
+  const w = getWeak();
+  w[f] = (w[f]||0) + 1;
+  try{ localStorage.setItem(WEAK_KEY, JSON.stringify(w)); }catch(e){}
+}
+function recordHit(f){
+  if(!f) return;
+  const w = getWeak();
+  if(w[f]){
+    w[f] = Math.round((w[f] - 0.5) * 10) / 10;
+    if(w[f] <= 0) delete w[f];
+    try{ localStorage.setItem(WEAK_KEY, JSON.stringify(w)); }catch(e){}
+  }
+}
+
+function makeReviewQs(count){
+  const day = getCurrentDay();
+  const sh = a=>[...a].sort(()=>Math.random()-0.5);
+  const weak = getWeak();
+
+  // Full vocab pool across all unlocked days, tagged with day number
+  const pool = [];
+  for(let d=1; d<=day; d++){
+    CURRICULUM[d-1].vocab.forEach(v=>pool.push({f:v.f, p:v.p, e:v.e, day:d}));
+  }
+
+  const noSameMeaning = (correct, p) => p.filter(x=>{
+    if(x.f === correct.f) return false;
+    const cParts = correct.e.toLowerCase().split(/[\/,]/).map(s=>s.trim());
+    const xParts = x.e.toLowerCase().split(/[\/,]/).map(s=>s.trim());
+    return !cParts.some(cp => xParts.some(xp => xp===cp || xp.includes(cp) || cp.includes(xp)));
+  });
+
+  // Weight each word: weak words boosted heavily, older days boosted
+  const items = pool.map(v=>{
+    let w = 1;
+    w += Math.min(3, weak[v.f]||0) * 2;          // weak-word boost (up to +6)
+    w += ((day - v.day) / Math.max(day,1)) * 2;  // older-day boost (up to +2)
+    return {v, w};
+  });
+
+  // Weighted sampling without replacement
+  const picked = [];
+  while(picked.length < count && items.length){
+    const total = items.reduce((s,it)=>s+it.w, 0);
+    let r = Math.random() * total;
+    let idx = items.length - 1;
+    for(let i=0; i<items.length; i++){ r -= items[i].w; if(r <= 0){ idx = i; break; } }
+    picked.push(items[idx].v);
+    items.splice(idx, 1);
+  }
+
+  // Generate questions in 3 rotating formats
+  return picked.map((v,i)=>{
+    const wrongPool = sh(noSameMeaning(v, pool));
+    const wrongE = wrongPool.slice(0,3).map(x=>x.e);
+    const wrongF = wrongPool.slice(0,3).map(x=>x.f);
+    const tag = `<span style="font-size:12px;color:var(--muted)">(Day ${v.day})</span>`;
+    const fmt = i % 3;
+    if(fmt===0) return {type:'mcq', label:`What does "${v.f}" mean? ${tag}`,
+      options:sh([v.e,...wrongE]), answer:v.e, note:`"${v.f}" (${v.p}) = ${v.e}`, vocabF:v.f};
+    if(fmt===1) return {type:'spoken', prompt:`How do you say "${v.e}" in Farsi? ${tag}`,
+      options:sh([v.f,...wrongF]), answer:v.f, vocab:pool, note:`"${v.f}" — pronounced: ${v.p}`, vocabF:v.f};
+    return {type:'mcq', label:`You hear "${v.p}" — what does it mean? ${tag}`,
+      options:sh([v.e,...wrongE]), answer:v.e, note:`"${v.f}" (${v.p}) = ${v.e}`, vocabF:v.f};
+  });
+}
+
+function launchReview(){
+  activeDay = getCurrentDay();
+  activeAct = 'review';
+  activeQs = makeReviewQs(25);
+  qIdx=0; sessionCorrect=0; sessionWrong=0; buildPlaced=[];
+  ST.hearts=5; updateHeader();
+  document.getElementById('l-hearts').textContent=5;
+  document.getElementById('l-act-label').textContent='🎯 Cumulative Review · Days 1–'+activeDay+' · practice only, no XP';
+  renderProgress();
+  renderQ();
+  show('s-lesson');
+}
+
+function endReview(){
+  const total = activeQs.length;
+  const acc = Math.round((sessionCorrect/Math.max(total,1))*100);
+  document.getElementById('res-xp').textContent='—';
+  document.getElementById('res-acc').textContent=acc+'%';
+  document.getElementById('res-streak').textContent=ST.streak+'🔥';
+  const ring=document.getElementById('res-icon');
+  if(acc>=80){ring.style.borderColor='var(--gold)';ring.textContent='🎯';}
+  else if(acc>=50){ring.style.borderColor='#4A3F8F';ring.textContent='👍';}
+  else{ring.style.borderColor='#9B2335';ring.textContent='📚';}
+  document.getElementById('res-title').textContent = acc>=80?'Sharp recall!':acc>=50?'Solid review!':'Good practice!';
+  document.getElementById('res-sub').textContent = `${sessionCorrect}/${total} correct · Cumulative Review · Days 1–${getCurrentDay()}`;
+
+  // Weak-word focus list
+  const weak = getWeak();
+  const weakList = Object.entries(weak).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  let html='';
+  if(weakList.length){
+    const allVocab = {};
+    for(let d=1; d<=getCurrentDay(); d++) CURRICULUM[d-1].vocab.forEach(v=>{ allVocab[v.f]=v; });
+    html += `<div class="card" style="margin-bottom:16px;text-align:left"><div style="font-size:11px;letter-spacing:2px;color:var(--muted);text-transform:uppercase;margin-bottom:12px">Words to focus on — these will appear more often</div>`;
+    weakList.forEach(([f])=>{
+      const v = allVocab[f];
+      if(v) html += `<div class="recap-item"><span class="recap-farsi">${v.f}</span><div><div style="font-size:14px;font-weight:500">${v.e}</div><div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--muted)">🔊 ${v.p}</div></div></div>`;
+    });
+    html += `</div>`;
+  }
+  html += `<button class="btn btn-gold btn-block" style="margin-bottom:10px" onclick="launchReview()">New 25-question review →</button>`;
+  document.getElementById('res-vocab').innerHTML = html;
+  show('s-result');
+}
+
 /* ══════════════════════════════════════════════════════
    LESSON ENGINE
 ═══════════════════════════════════════════════════════ */
 let activeDay=1, activeAct=1, activeQs=[], qIdx=0, sessionCorrect=0, sessionWrong=0, buildPlaced=[];
 
 function startLesson(){ launchActivity(getCurrentDay(),1); }
-function replayDay(){ launchActivity(activeDay, activeAct); }
+function replayDay(){ if(activeAct==='review'){ launchReview(); return; } launchActivity(activeDay, activeAct); }
 
 /* ─────────────────────────────────────────────────────
    ACTIVITY 1 — TEACH-FIRST LESSON
@@ -2306,6 +2432,10 @@ function renderConvo(q,area){
 
 /* FEEDBACK & ADVANCE */
 function showFeedback(ok,note){
+  if(activeAct==='review'){
+    const q = activeQs[qIdx];
+    if(q && q.vocabF){ ok ? recordHit(q.vocabF) : recordMiss(q.vocabF); }
+  }
   const fb=document.getElementById('l-feedback'); fb.style.display='block';
   fb.className='feedback-box '+(ok?'ok':'bad');
   fb.innerHTML=`<div class="feedback-title">${ok?'✓ Correct!':'✗ Not quite'}</div>${note?'<div style="font-size:13px;margin-top:4px;line-height:1.6">'+note+'</div>':''}`;
@@ -2324,6 +2454,7 @@ function advance(){
 
 /* END LESSON */
 function endLesson(){
+  if(activeAct==='review'){ endReview(); return; }
   const total=activeQs.length;
   const acc=Math.round((sessionCorrect/Math.max(total,1))*100);
   const xpTables=[0,20,15,15];
