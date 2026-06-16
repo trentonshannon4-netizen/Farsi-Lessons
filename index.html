@@ -1522,7 +1522,7 @@ const CURRICULUM = [
 ═══════════════════════════════════════════════════════ */
 const SUPABASE_URL  = 'https://ajovtrbjwgwclcvpdlfm.supabase.co';   // e.g. https://xxxx.supabase.co
 const SUPABASE_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFqb3Z0cmJqd2d3Y2xjdnBkbGZtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA5Nzc1MDUsImV4cCI6MjA5NjU1MzUwNX0.29HWZHsl-9skhT8yDiWnup3lEOMHaPWz108cI33EwH0';
-function USE_CLOUD(){ return SUPABASE_URL.indexOf('https://ajovtrbjwgwclcvpdlfm.supabase.co') > 0; } // true once a real Supabase URL is pasted in
+function USE_CLOUD(){ return SUPABASE_URL.length > 25 && SUPABASE_URL.indexOf('supabase') > 0; } // true once a real Supabase URL is pasted in
 
 /* ══════════════════════════════════════════════════════
    USER IDENTITY — persistent ID stored in localStorage
